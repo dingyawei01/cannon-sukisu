@@ -48,16 +48,20 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential bc bison flex libssl-dev libelf-dev \
             python3 device-tree-compiler gcc-aarch64-linux-gnu
+          # clang-r383902 needs old ncurses5/tinfo5 (removed in 22.04)
+          curl -fsSL -o /tmp/libtinfo5.deb  http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.2-0ubuntu2_amd64.deb
+          curl -fsSL -o /tmp/libncurses5.deb http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.2-0ubuntu2_amd64.deb
+          sudo dpkg -i /tmp/libtinfo5.deb /tmp/libncurses5.deb || sudo apt-get -f install -y -qq
 
-      - name: Fetch AOSP clang r383902
+      - name: Fetch AOSP clang r383902 (sparse)
         run: |
-          git clone --depth 1 -b android11-release \
+          git clone --depth 1 --filter=blob:none --sparse -b android11-release \
             https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang
-          ls -d clang/clang-*/bin
-          CLANG_BIN=$(ls -d "$GITHUB_WORKSPACE"/clang/clang-*/bin | head -1)
+          cd clang && git sparse-checkout set clang-r383902 && cd ..
+          CLANG_BIN="$GITHUB_WORKSPACE/clang/clang-r383902/bin"
+          test -x "$CLANG_BIN/clang"
           echo "CLANG_BIN=$CLANG_BIN" >> $GITHUB_ENV
-          LDIR=$(dirname "$CLANG_BIN")
-          echo "CLANG_LIB=$LDIR/lib64" >> $GITHUB_ENV
+          echo "CLANG_LIB=$GITHUB_WORKSPACE/clang/clang-r383902/lib64" >> $GITHUB_ENV
           "$CLANG_BIN/clang" --version
           "$CLANG_BIN/ld.lld" --version
 
@@ -66,6 +70,7 @@ jobs:
         run: |
           export PATH="$CLANG_BIN:$PATH"
           export LD_LIBRARY_PATH="$CLANG_LIB:$LD_LIBRARY_PATH"
+          echo "--- which clang ---"; which clang
           echo "--- target probe ---"
           echo | clang --target=aarch64-linux-gnu -E -v - 2>&1 | grep -iE 'target|as' | head -5
           make O=out ARCH=arm64 \
