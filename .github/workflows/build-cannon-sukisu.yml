@@ -18,9 +18,7 @@ jobs:
         run: |
           git clone --depth 1 --branch cannon-r-oss \
             https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
-          cd kernel
-          head -5 Makefile
-          ls arch/arm64/configs/ | grep -i cannon
+          ls kernel/arch/arm64/configs/ | grep -i cannon
 
       - name: Integrate SukiSU-Ultra (builtin branch)
         working-directory: kernel
@@ -28,7 +26,6 @@ jobs:
           curl -LSs -o /tmp/setup.sh https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh
           bash /tmp/setup.sh builtin
           ls -l drivers/kernelsu
-          git -C KernelSU log --oneline -1
 
       - name: Enable KSU configs
         working-directory: kernel
@@ -39,36 +36,51 @@ jobs:
           grep -q '^CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' $cfg || echo 'CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' >> $cfg
           tail -4 $cfg
 
+      - name: Drop -EL flag for clang
+        working-directory: kernel
+        run: |
+          sed -i 's/^\t*AS\t*+= -EL//' arch/arm64/Makefile
+          sed -i 's/^\t*LD\t*+= -EL//' arch/arm64/Makefile
+          grep -n -- '-EL' arch/arm64/Makefile || echo 'no -EL left'
+
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential bc bison flex libssl-dev libelf-dev \
-            python3 device-tree-compiler gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            python3 device-tree-compiler gcc-aarch64-linux-gnu
 
       - name: Fetch AOSP clang r383902
         run: |
           git clone --depth 1 -b android11-release \
             https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang
-          echo "$GITHUB_WORKSPACE/clang/bin" >> $GITHUB_PATH
+          ls -d clang/clang-*/bin
+          CLANG_BIN=$(ls -d "$GITHUB_WORKSPACE"/clang/clang-*/bin | head -1)
+          echo "CLANG_BIN=$CLANG_BIN" >> $GITHUB_ENV
+          LDIR=$(dirname "$CLANG_BIN")
+          echo "CLANG_LIB=$LDIR/lib64" >> $GITHUB_ENV
+          "$CLANG_BIN/clang" --version
+          "$CLANG_BIN/ld.lld" --version
 
       - name: Configure
         working-directory: kernel
         run: |
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export PATH="$CLANG_BIN:$PATH"
+          export LD_LIBRARY_PATH="$CLANG_LIB:$LD_LIBRARY_PATH"
+          echo "--- target probe ---"
+          echo | clang --target=aarch64-linux-gnu -E -v - 2>&1 | grep -iE 'target|as' | head -5
           make O=out ARCH=arm64 \
-            CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
+            CC=clang LD=ld.lld NM=llvm-nm OBJCOPY=llvm-objcopy \
             CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
             cannon_user_defconfig
-          grep -E 'CONFIG_KSU|CONFIG_LTO|CONFIG_KPROBES' out/.config || true
+          grep -E '^CONFIG_KSU|^CONFIG_LTO' out/.config || true
 
       - name: Build kernel
         working-directory: kernel
         run: |
-          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          export PATH="$CLANG_BIN:$PATH"
+          export LD_LIBRARY_PATH="$CLANG_LIB:$LD_LIBRARY_PATH"
           make O=out ARCH=arm64 -j$(nproc) \
-            CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
+            CC=clang LD=ld.lld NM=llvm-nm OBJCOPY=llvm-objcopy \
             CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
 
       - name: Collect artifacts
