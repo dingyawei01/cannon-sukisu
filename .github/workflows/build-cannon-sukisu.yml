@@ -1,0 +1,88 @@
+name: build-cannon-sukisu
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    steps:
+      - name: Show toolchain
+        run: |
+          nproc; free -h; df -h /
+
+      - name: Clone kernel source (cannon-r-oss)
+        run: |
+          git clone --depth 1 --branch cannon-r-oss \
+            https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          cd kernel
+          head -5 Makefile
+          ls arch/arm64/configs/ | grep -i cannon
+
+      - name: Integrate SukiSU-Ultra (builtin branch)
+        working-directory: kernel
+        run: |
+          curl -LSs -o /tmp/setup.sh https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh
+          bash /tmp/setup.sh builtin
+          ls -l drivers/kernelsu
+          git -C KernelSU log --oneline -1
+
+      - name: Enable KSU configs
+        working-directory: kernel
+        run: |
+          cfg=arch/arm64/configs/cannon_user_defconfig
+          ./scripts/config --file $cfg --enable KSU --enable KSU_TAMPER_SYSCALL_TABLE
+          grep -q '^CONFIG_KSU=y' $cfg || echo 'CONFIG_KSU=y' >> $cfg
+          grep -q '^CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' $cfg || echo 'CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' >> $cfg
+          tail -4 $cfg
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential bc bison flex libssl-dev libelf-dev \
+            python3 device-tree-compiler gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Fetch AOSP clang r383902
+        run: |
+          git clone --depth 1 -b android11-release \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang
+          echo "$GITHUB_WORKSPACE/clang/bin" >> $GITHUB_PATH
+
+      - name: Configure
+        working-directory: kernel
+        run: |
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          make O=out ARCH=arm64 \
+            CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
+            CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
+            cannon_user_defconfig
+          grep -E 'CONFIG_KSU|CONFIG_LTO|CONFIG_KPROBES' out/.config || true
+
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+          make O=out ARCH=arm64 -j$(nproc) \
+            CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump READELF=llvm-readelf STRIP=llvm-strip \
+            CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifact
+          cp kernel/out/arch/arm64/boot/Image.gz-dtb artifact/ 2>/dev/null || true
+          cp kernel/out/arch/arm64/boot/Image.gz     artifact/ 2>/dev/null || true
+          cp kernel/out/arch/arm64/boot/Image        artifact/ 2>/dev/null || true
+          cp kernel/out/.config                      artifact/ 2>/dev/null || true
+          ls -l artifact
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cannon-kernel
+          path: artifact/*
+          if-no-files-found: error
