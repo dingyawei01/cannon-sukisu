@@ -36,11 +36,14 @@ jobs:
           fi
           ls kernel/arch/arm64/configs/ | grep -i cannon
 
-      - name: Integrate SukiSU-Ultra (main branch, kprobes hook)
+      - name: Integrate KernelSU v0.9.5 (official, 4.14 supported)
         working-directory: kernel
         run: |
-          curl -LSs -o /tmp/setup.sh https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh
-          bash /tmp/setup.sh main || bash /tmp/setup.sh main
+          rm -rf KernelSU
+          git clone --depth 1 --branch v0.9.5 https://github.com/tiann/KernelSU.git KernelSU
+          ln -sf "$(realpath --relative-to="$PWD/drivers" "$PWD/KernelSU/kernel")" drivers/kernelsu
+          grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
+          grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i "/endmenu/i source \"drivers/kernelsu/Kconfig\"" drivers/Kconfig
           ls -l drivers/kernelsu
           git -C KernelSU describe --tags 2>/dev/null || true
 
@@ -49,8 +52,8 @@ jobs:
         run: |
           cfg=arch/arm64/configs/cannon_user_defconfig
           ./scripts/config --file $cfg \
-            --enable KSU --enable KPROBES --enable OVERLAY_FS --disable KPM
-          for c in CONFIG_KSU=y CONFIG_KPROBES=y CONFIG_OVERLAY_FS=y; do
+            --enable KSU --enable KPROBES
+          for c in CONFIG_KSU=y CONFIG_KPROBES=y; do
             grep -q "^$c$" $cfg || echo "$c" >> $cfg
           done
           grep -q 'KPM is not set' $cfg || echo '# CONFIG_KPM is not set' >> $cfg
@@ -168,5 +171,6 @@ jobs:
           name: cannon-kernel
           path: artifact/*
           if-no-files-found: error
+
 
 
