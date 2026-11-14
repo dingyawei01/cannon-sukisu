@@ -14,17 +14,33 @@ jobs:
         run: |
           nproc; free -h; df -h /
 
+      - name: Cache kernel source + build output
+        uses: actions/cache@v4
+        with:
+          path: kernel
+          key: kernel-cannon-v6
+          restore-keys: kernel-cannon-
+
+      - name: Cache AOSP clang r383902
+        uses: actions/cache@v4
+        with:
+          path: clang
+          key: clang-r383902-android11
+          restore-keys: clang-r383902-
+
       - name: Clone kernel source (cannon-r-oss)
         run: |
-          git clone --depth 1 --branch cannon-r-oss \
-            https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          if [ ! -d kernel/.git ]; then
+            git clone --depth 1 --branch cannon-r-oss \
+              https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+          fi
           ls kernel/arch/arm64/configs/ | grep -i cannon
 
       - name: Integrate SukiSU-Ultra (builtin branch)
         working-directory: kernel
         run: |
           curl -LSs -o /tmp/setup.sh https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh
-          bash /tmp/setup.sh builtin
+          bash /tmp/setup.sh builtin || bash /tmp/setup.sh builtin
           ls -l drivers/kernelsu
 
       - name: Enable KSU configs
@@ -43,50 +59,50 @@ jobs:
           sed -i 's/^\t*LD\t*+= -EL//' arch/arm64/Makefile
           grep -n -- '-EL' arch/arm64/Makefile || echo 'no -EL left'
 
-      - name: Stub missing touch firmware header
+      - name: Stub touch firmware + guard static_call include
         working-directory: kernel
         run: |
-          # Xiaomi's release omits the generated fw_sample.i; quoted include resolves
-          # relative to the driver source dir, so put it there (and in root for safety)
           mkdir -p drivers/input/touchscreen/fts8719/include/firmware include/firmware
           echo "0x00," > drivers/input/touchscreen/fts8719/include/firmware/fw_sample.i
           echo "0x00," > include/firmware/fw_sample.i
-          # disable boot-time auto upgrade so the stub can never be flashed into the IC
           sed -i 's/^\(#define FTS_AUTO_UPGRADE_EN\)[[:space:]]*1/\1                    0/' \
             drivers/input/touchscreen/fts8719/focaltech_config.h
-          grep -n 'FTS_AUTO_UPGRADE_EN' drivers/input/touchscreen/fts8719/focaltech_config.h
-          find . -path '*include/firmware/fw_sample.i' -exec ls -l {} \;
+          # static_call.h only exists on 5.10+
+          perl -0pi -e 's{#include <linux/static_call\.h>}{#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n#include <linux/static_call.h>\n#endif}' \
+            drivers/kernelsu/kernel_includes.h
+          grep -n -A2 -B2 'static_call' drivers/kernelsu/kernel_includes.h
 
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential bc bison flex libssl-dev libelf-dev \
             python3 device-tree-compiler gcc-aarch64-linux-gnu
-          # clang-r383902 needs old ncurses5/tinfo5 (removed in 22.04)
-          curl -fsSL -o /tmp/libtinfo5.deb  http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.2-0ubuntu2_amd64.deb
-          curl -fsSL -o /tmp/libncurses5.deb http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.2-0ubuntu2_amd64.deb
-          sudo dpkg -i /tmp/libtinfo5.deb /tmp/libncurses5.deb || sudo apt-get -f install -y -qq
+          if [ ! -f /usr/lib/x86_64-linux-gnu/libtinfo.so.5 ]; then
+            curl -fsSL -o /tmp/libtinfo5.deb  http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.2-0ubuntu2_amd64.deb
+            curl -fsSL -o /tmp/libncurses5.deb http://archive.ubuntu.com/ubuntu/pool/universe/n/ncurses/libncurses5_6.2-0ubuntu2_amd64.deb
+            sudo dpkg -i /tmp/libtinfo5.deb /tmp/libncurses5.deb || sudo apt-get -f install -y -qq
+          fi
 
       - name: Fetch AOSP clang r383902 (sparse)
         run: |
-          git clone --depth 1 --filter=blob:none --sparse -b android11-release \
-            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang
-          cd clang && git sparse-checkout set clang-r383902 && cd ..
+          if [ ! -x clang/clang-r383902/bin/clang ]; then
+            rm -rf clang
+            git clone --depth 1 --filter=blob:none --sparse -b android11-release \
+              https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang
+            cd clang && git sparse-checkout set clang-r383902 && cd ..
+          fi
           CLANG_BIN="$GITHUB_WORKSPACE/clang/clang-r383902/bin"
           test -x "$CLANG_BIN/clang"
           echo "CLANG_BIN=$CLANG_BIN" >> $GITHUB_ENV
           echo "CLANG_LIB=$GITHUB_WORKSPACE/clang/clang-r383902/lib64" >> $GITHUB_ENV
           "$CLANG_BIN/clang" --version
-          "$CLANG_BIN/ld.lld" --version
 
       - name: Configure
         working-directory: kernel
         run: |
           export PATH="$CLANG_BIN:$PATH"
           export LD_LIBRARY_PATH="$CLANG_LIB:$LD_LIBRARY_PATH"
-          echo "--- which clang ---"; which clang
-          echo "--- target probe ---"
-          echo | clang --target=aarch64-linux-gnu -E -v - 2>&1 | grep -iE 'target|as' | head -5
+          which clang
           make O=out ARCH=arm64 \
             CC=clang LD=ld.lld NM=llvm-nm OBJCOPY=llvm-objcopy \
             CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
