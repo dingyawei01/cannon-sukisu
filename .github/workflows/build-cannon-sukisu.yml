@@ -46,14 +46,16 @@ jobs:
       - name: Stub missing touch firmware header
         working-directory: kernel
         run: |
-          # Xiaomi's release omits the generated include/firmware/fw_sample.i
-          mkdir -p include/firmware
+          # Xiaomi's release omits the generated fw_sample.i; quoted include resolves
+          # relative to the driver source dir, so put it there (and in root for safety)
+          mkdir -p drivers/input/touchscreen/fts8719/include/firmware include/firmware
+          echo "0x00," > drivers/input/touchscreen/fts8719/include/firmware/fw_sample.i
           echo "0x00," > include/firmware/fw_sample.i
           # disable boot-time auto upgrade so the stub can never be flashed into the IC
           sed -i 's/^\(#define FTS_AUTO_UPGRADE_EN\)[[:space:]]*1/\1                    0/' \
             drivers/input/touchscreen/fts8719/focaltech_config.h
           grep -n 'FTS_AUTO_UPGRADE_EN' drivers/input/touchscreen/fts8719/focaltech_config.h
-          cat include/firmware/fw_sample.i
+          find . -path '*include/firmware/fw_sample.i' -exec ls -l {} \;
 
       - name: Install build dependencies
         run: |
