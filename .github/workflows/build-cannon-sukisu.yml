@@ -47,10 +47,11 @@ jobs:
         working-directory: kernel
         run: |
           cfg=arch/arm64/configs/cannon_user_defconfig
-          ./scripts/config --file $cfg --enable KSU --enable KSU_TAMPER_SYSCALL_TABLE
+          ./scripts/config --file $cfg --enable KSU --enable KSU_TAMPER_SYSCALL_TABLE --disable KSU_SUSFS
           grep -q '^CONFIG_KSU=y' $cfg || echo 'CONFIG_KSU=y' >> $cfg
           grep -q '^CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' $cfg || echo 'CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' >> $cfg
-          tail -4 $cfg
+          grep -q 'KSU_SUSFS is not set' $cfg || echo '# CONFIG_KSU_SUSFS is not set' >> $cfg
+          tail -5 $cfg
 
       - name: Drop -EL flag for clang
         working-directory: kernel
