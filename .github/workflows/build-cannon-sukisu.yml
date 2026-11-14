@@ -74,9 +74,13 @@ jobs:
             drivers/kernelsu/kernel_includes.h
           grep -n -A2 -B2 'static_call' drivers/kernelsu/kernel_includes.h || true
           # kvcalloc() only exists since 4.18
-          sed -i 's/kvcalloc(\([^)]*\), \([^)]*\), GFP_KERNEL)/kvmalloc_array(\1, \2, GFP_KERNEL | __GFP_ZERO)/g' \
+          perl -0pi -e 's/kvcalloc\((.*?), (.*?), GFP_KERNEL\)/kvmalloc_array($1, $2, GFP_KERNEL | __GFP_ZERO)/g' \
             drivers/kernelsu/supercall/dispatch.c
           grep -n 'kvcalloc\|kvmalloc_array' drivers/kernelsu/supercall/dispatch.c || true
+          # access_ok() takes 3 args on 4.14
+          perl -0pi -e 's/access_ok\((.*?), ([^,)]+?)\)/access_ok(VERIFY_WRITE, $1, $2)/g' \
+            drivers/kernelsu/extension/kpm/kpm.c
+          grep -n 'access_ok' drivers/kernelsu/extension/kpm/kpm.c || true
 
       - name: Install build dependencies
         run: |
