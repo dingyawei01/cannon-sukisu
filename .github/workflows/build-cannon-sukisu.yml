@@ -59,6 +59,16 @@ jobs:
           grep -q 'KPM is not set' $cfg || echo '# CONFIG_KPM is not set' >> $cfg
           tail -8 $cfg
 
+      - name: Patch seccomp to allow reboot supercall
+        working-directory: kernel
+        run: |
+          # MIUI's app seccomp policy blocks __NR_reboot, which KernelSU uses as
+          # its supercall. Allow that single syscall through seccomp.
+          if [ -f kernel/seccomp.c ]; then
+            perl -0pi -e 's/(void __secure_computing\(int this_syscall\)\s*\n\{\n)/$1#ifdef CONFIG_KSU\n\tif (this_syscall == __NR_reboot)\n\t\treturn;\n#endif\n/' kernel/seccomp.c
+            grep -n -A5 '__secure_computing' kernel/seccomp.c | head -12
+          fi
+
       - name: Drop -EL flag for clang
         working-directory: kernel
         run: |
