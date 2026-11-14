@@ -18,7 +18,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: kernel
-          key: kernel-cannon-v6
+          key: kernel-cannon-v10
           restore-keys: kernel-cannon-
 
       - name: Cache AOSP clang r383902
@@ -36,23 +36,25 @@ jobs:
           fi
           ls kernel/arch/arm64/configs/ | grep -i cannon
 
-      - name: Integrate SukiSU-Ultra (builtin branch)
+      - name: Integrate SukiSU-Ultra (tag v3.2.0)
         working-directory: kernel
         run: |
           curl -LSs -o /tmp/setup.sh https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh
-          bash /tmp/setup.sh builtin || bash /tmp/setup.sh builtin
+          bash /tmp/setup.sh v3.2.0 || bash /tmp/setup.sh v3.2.0
           ls -l drivers/kernelsu
+          git -C KernelSU describe --tags 2>/dev/null || true
 
       - name: Enable KSU configs
         working-directory: kernel
         run: |
           cfg=arch/arm64/configs/cannon_user_defconfig
-          ./scripts/config --file $cfg --enable KSU --enable KSU_TAMPER_SYSCALL_TABLE --disable KSU_SUSFS --disable KPM
-          grep -q '^CONFIG_KSU=y' $cfg || echo 'CONFIG_KSU=y' >> $cfg
-          grep -q '^CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' $cfg || echo 'CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' >> $cfg
-          grep -q 'KSU_SUSFS is not set' $cfg || echo '# CONFIG_KSU_SUSFS is not set' >> $cfg
+          ./scripts/config --file $cfg \
+            --enable KSU --enable KSU_KPROBES_HOOK --enable KPROBES --enable OVERLAY_FS --disable KPM
+          for c in CONFIG_KSU=y CONFIG_KSU_KPROBES_HOOK=y CONFIG_KPROBES=y CONFIG_OVERLAY_FS=y; do
+            grep -q "^$c$" $cfg || echo "$c" >> $cfg
+          done
           grep -q 'KPM is not set' $cfg || echo '# CONFIG_KPM is not set' >> $cfg
-          tail -6 $cfg
+          tail -8 $cfg
 
       - name: Drop -EL flag for clang
         working-directory: kernel
@@ -61,7 +63,7 @@ jobs:
           sed -i 's/^\t*LD\t*+= -EL//' arch/arm64/Makefile
           grep -n -- '-EL' arch/arm64/Makefile || echo 'no -EL left'
 
-      - name: Stub touch firmware + guard static_call include
+      - name: Stub touch firmware + 4.14 compat patches
         working-directory: kernel
         run: |
           mkdir -p drivers/input/touchscreen/fts8719/include/firmware include/firmware
@@ -69,18 +71,20 @@ jobs:
           echo "0x00," > include/firmware/fw_sample.i
           sed -i 's/^\(#define FTS_AUTO_UPGRADE_EN\)[[:space:]]*1/\1                    0/' \
             drivers/input/touchscreen/fts8719/focaltech_config.h
-          # static_call.h only exists on 5.10+
-          perl -0pi -e 's{#include <linux/static_call\.h>}{#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n#include <linux/static_call.h>\n#endif}' \
-            drivers/kernelsu/kernel_includes.h
-          grep -n -A2 -B2 'static_call' drivers/kernelsu/kernel_includes.h || true
-          # kvcalloc() only exists since 4.18
-          perl -0pi -e 's/kvcalloc\((.*?), (.*?), GFP_KERNEL\)/kvmalloc_array($1, $2, GFP_KERNEL | __GFP_ZERO)/g' \
-            drivers/kernelsu/supercall/dispatch.c
-          grep -n 'kvcalloc\|kvmalloc_array' drivers/kernelsu/supercall/dispatch.c || true
-          # access_ok() takes 3 args on 4.14
-          perl -0pi -e 's/access_ok\((.*?), ([^,)]+?)\)/access_ok(VERIFY_WRITE, $1, $2)/g' \
-            drivers/kernelsu/extension/kpm/kpm.c
-          grep -n 'access_ok' drivers/kernelsu/extension/kpm/kpm.c || true
+
+          if [ -f drivers/kernelsu/kernel_includes.h ]; then
+            perl -0pi -e 's{#include <linux/static_call\.h>}{#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n#include <linux/static_call.h>\n#endif}' \
+              drivers/kernelsu/kernel_includes.h
+          fi
+          if [ -f drivers/kernelsu/supercall/dispatch.c ]; then
+            perl -0pi -e 's/kvcalloc\((.*?), (.*?), GFP_KERNEL\)/kvmalloc_array($1, $2, GFP_KERNEL | __GFP_ZERO)/g' \
+              drivers/kernelsu/supercall/dispatch.c
+          fi
+          if [ -f drivers/kernelsu/extension/kpm/kpm.c ]; then
+            perl -0pi -e 's/access_ok\((.*?), ([^,)]+?)\)/access_ok(VERIFY_WRITE, $1, $2)/g' \
+              drivers/kernelsu/extension/kpm/kpm.c
+          fi
+          echo "--- patched files ---"; find drivers/kernelsu -name '*.c' -newer /tmp/setup.sh | head -5 || true
 
       - name: Install build dependencies
         run: |
@@ -112,12 +116,11 @@ jobs:
         run: |
           export PATH="$CLANG_BIN:$PATH"
           export LD_LIBRARY_PATH="$CLANG_LIB:$LD_LIBRARY_PATH"
-          which clang
           make O=out ARCH=arm64 \
             CC=clang LD=ld.lld NM=llvm-nm OBJCOPY=llvm-objcopy \
             CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
             cannon_user_defconfig
-          grep -E '^CONFIG_KSU|^CONFIG_LTO' out/.config || true
+          grep -E '^CONFIG_KSU|^CONFIG_KPROBES|^CONFIG_OVERLAY_FS' out/.config || true
 
       - name: Build kernel
         working-directory: kernel
@@ -134,7 +137,6 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image.gz-dtb artifact/ 2>/dev/null || true
           cp kernel/out/arch/arm64/boot/Image.gz     artifact/ 2>/dev/null || true
           cp kernel/out/arch/arm64/boot/Image        artifact/ 2>/dev/null || true
-          cp kernel/out/.config                      artifact/ 2>/dev/null || true
           ls -l artifact
 
       - name: Upload artifacts
