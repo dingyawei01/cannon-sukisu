@@ -88,6 +88,11 @@ jobs:
           if [ -f drivers/kernelsu/ksu.c ]; then
             sed -i '/MODULE_IMPORT_NS/d' drivers/kernelsu/ksu.c
           fi
+          # struct proc_ops only exists since 5.6 -> use file_operations on 4.14
+          grep -rl 'struct proc_ops' drivers/kernelsu 2>/dev/null | while read -r f; do
+            perl -0pi -e 's/const struct proc_ops/const struct file_operations/g; s/\.proc_open/.open/g; s/\.proc_read/.read/g; s/\.proc_write/.write/g; s/\.proc_lseek/.llseek/g; s/\.proc_release/.release/g' "$f"
+            echo "patched proc_ops: $f"
+          done
           echo "--- patched files ---"; find drivers/kernelsu -name '*.c' -newer /tmp/setup.sh | head -5 || true
 
       - name: Install build dependencies
