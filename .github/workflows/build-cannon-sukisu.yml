@@ -126,7 +126,7 @@ jobs:
           export PATH="$CLANG_BIN:$PATH"
           export LD_LIBRARY_PATH="$CLANG_LIB:$LD_LIBRARY_PATH"
           make O=out ARCH=arm64 \
-            CC=clang LD=ld.lld NM=llvm-nm OBJCOPY=llvm-objcopy \
+            CC=clang LD=ld.lld NM=llvm-nm OBJCOPY=llvm-objcopy KCFLAGS=-DKSU_COMPAT_HAS_CURRENT_SID \
             CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
             cannon_user_defconfig
           grep -E '^CONFIG_KSU|^CONFIG_KPROBES|^CONFIG_OVERLAY_FS' out/.config || true
@@ -137,7 +137,7 @@ jobs:
           export PATH="$CLANG_BIN:$PATH"
           export LD_LIBRARY_PATH="$CLANG_LIB:$LD_LIBRARY_PATH"
           make O=out ARCH=arm64 -j$(nproc) \
-            CC=clang LD=ld.lld NM=llvm-nm OBJCOPY=llvm-objcopy \
+            CC=clang LD=ld.lld NM=llvm-nm OBJCOPY=llvm-objcopy KCFLAGS=-DKSU_COMPAT_HAS_CURRENT_SID \
             CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu-
 
       - name: Collect artifacts
@@ -154,3 +154,4 @@ jobs:
           name: cannon-kernel
           path: artifact/*
           if-no-files-found: error
+
