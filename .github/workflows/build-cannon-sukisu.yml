@@ -65,8 +65,8 @@ jobs:
           # MIUI's app seccomp policy blocks __NR_reboot, which KernelSU uses as
           # its supercall. Allow that single syscall through seccomp.
           if [ -f kernel/seccomp.c ]; then
-            perl -0pi -e 's/(void __secure_computing\(int this_syscall\)\s*\n\{\n)/$1#ifdef CONFIG_KSU\n\tif (this_syscall == __NR_reboot)\n\t\treturn;\n#endif\n/' kernel/seccomp.c
-            grep -n -A5 '__secure_computing' kernel/seccomp.c | head -12
+            perl -0pi -e 's/(int __secure_computing\(const struct seccomp_data \*sd\)\s*\n\{\n\tint mode = current->seccomp\.mode;\n\tint this_syscall;\n)/$1#ifdef CONFIG_KSU\n\tif (sd && sd->nr == __NR_reboot)\n\t\treturn 0;\n#endif\n/' kernel/seccomp.c
+            grep -n -A8 'int __secure_computing' kernel/seccomp.c | head -12
           fi
 
       - name: Drop -EL flag for clang
