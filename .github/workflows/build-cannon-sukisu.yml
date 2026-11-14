@@ -84,6 +84,10 @@ jobs:
           printf '#!/bin/sh\necho "-g5ae48e2"\n' > scripts/setlocalversion
           chmod +x scripts/setlocalversion
           cat scripts/setlocalversion
+          # Vendor modules also carry symbol CRCs from the stock build; skip the
+          # CRC comparison so they load against this kernel (equivalent to insmod -f).
+          perl -0pi -e 's/(static int check_version\(const struct load_info \*info,\s*\n\s*const char \*symname,\s*\n\s*struct module \*mod,\s*\n\s*const s32 \*crc\)\s*\n\{\n)/$1\treturn 1;\n/' kernel/module.c
+          grep -n -A8 'static int check_version' kernel/module.c | head -12
 
       - name: Drop -EL flag for clang
         working-directory: kernel
