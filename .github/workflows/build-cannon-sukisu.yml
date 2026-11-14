@@ -88,6 +88,10 @@ jobs:
           grep -rl 'MODULE_IMPORT_NS' drivers/kernelsu 2>/dev/null | while read -r f; do
             sed -i '/MODULE_IMPORT_NS/d' "$f"
           done
+          # linux/pgtable.h only exists on 5.x
+          grep -rl 'linux/pgtable.h' drivers/kernelsu 2>/dev/null | while read -r f; do
+            sed -i 's|<linux/pgtable.h>|<asm/pgtable.h>|' "$f"
+          done
           # syscall_fn_t is only defined for x86_64/riscv in syscall_hook.h
           if [ -f drivers/kernelsu/hook/syscall_hook.h ]; then
             perl -0pi -e 's{#include <asm/syscall\.h>}{#include <asm/syscall.h>\n\n#if defined(__aarch64__)\ntypedef unsigned long (*syscall_fn_t)(const struct pt_regs *);\n#endif}' \
