@@ -52,12 +52,18 @@ jobs:
         run: |
           cfg=arch/arm64/configs/cannon_user_defconfig
           ./scripts/config --file $cfg \
-            --enable KSU --enable KPROBES
+            --enable KSU --enable KPROBES \
+            --disable MODVERSIONS \
+            --disable LOCALVERSION_AUTO \
+            --set-str LOCALVERSION "-g5ae48e2"
           for c in CONFIG_KSU=y CONFIG_KPROBES=y; do
             grep -q "^$c$" $cfg || echo "$c" >> $cfg
           done
+          grep -q '^CONFIG_LOCALVERSION="-g5ae48e2"' $cfg || echo 'CONFIG_LOCALVERSION="-g5ae48e2"' >> $cfg
+          grep -q 'LOCALVERSION_AUTO is not set' $cfg || echo '# CONFIG_LOCALVERSION_AUTO is not set' >> $cfg
+          grep -q 'MODVERSIONS is not set' $cfg || echo '# CONFIG_MODVERSIONS is not set' >> $cfg
           grep -q 'KPM is not set' $cfg || echo '# CONFIG_KPM is not set' >> $cfg
-          tail -8 $cfg
+          tail -10 $cfg
 
       - name: Patch seccomp to allow reboot supercall
         working-directory: kernel
@@ -156,7 +162,9 @@ jobs:
             CC=clang LD=ld.lld NM=llvm-nm OBJCOPY=llvm-objcopy KCFLAGS=-DKSU_COMPAT_HAS_CURRENT_SID \
             CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-gnu- \
             cannon_user_defconfig
-          grep -E '^CONFIG_KSU|^CONFIG_KPROBES|^CONFIG_OVERLAY_FS' out/.config || true
+          echo "=== version that vendor modules will see ==="
+          make O=out ARCH=arm64 CC=clang kernelrelease 2>/dev/null || true
+          grep -E '^CONFIG_KSU|^CONFIG_KPROBES|^CONFIG_OVERLAY_FS|^CONFIG_LOCALVERSION|MODVERSIONS' out/.config || true
 
       - name: Build kernel
         working-directory: kernel
