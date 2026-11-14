@@ -43,6 +43,18 @@ jobs:
           sed -i 's/^\t*LD\t*+= -EL//' arch/arm64/Makefile
           grep -n -- '-EL' arch/arm64/Makefile || echo 'no -EL left'
 
+      - name: Stub missing touch firmware header
+        working-directory: kernel
+        run: |
+          # Xiaomi's release omits the generated include/firmware/fw_sample.i
+          mkdir -p include/firmware
+          echo "0x00," > include/firmware/fw_sample.i
+          # disable boot-time auto upgrade so the stub can never be flashed into the IC
+          sed -i 's/^\(#define FTS_AUTO_UPGRADE_EN\)[[:space:]]*1/\1                    0/' \
+            drivers/input/touchscreen/fts8719/focaltech_config.h
+          grep -n 'FTS_AUTO_UPGRADE_EN' drivers/input/touchscreen/fts8719/focaltech_config.h
+          cat include/firmware/fw_sample.i
+
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
