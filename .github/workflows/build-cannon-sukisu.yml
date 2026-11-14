@@ -84,6 +84,10 @@ jobs:
             perl -0pi -e 's/access_ok\((.*?), ([^,)]+?)\)/access_ok(VERIFY_WRITE, $1, $2)/g' \
               drivers/kernelsu/extension/kpm/kpm.c
           fi
+          # MODULE_IMPORT_NS was added in 5.4
+          if [ -f drivers/kernelsu/ksu.c ]; then
+            sed -i '/MODULE_IMPORT_NS/d' drivers/kernelsu/ksu.c
+          fi
           echo "--- patched files ---"; find drivers/kernelsu -name '*.c' -newer /tmp/setup.sh | head -5 || true
 
       - name: Install build dependencies
