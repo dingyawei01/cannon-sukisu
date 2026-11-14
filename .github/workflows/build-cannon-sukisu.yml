@@ -81,10 +81,7 @@ jobs:
           # Vendor .ko modules are built against 4.14.186-g5ae48e2; our tree is
           # at a different commit so Kbuild would append -g30fa96c92-dirty and
           # the vendor modules would refuse to load.
-          cat > scripts/setlocalversion <<'EOF'
-#!/bin/sh
-echo "-g5ae48e2"
-EOF
+          printf '#!/bin/sh\necho "-g5ae48e2"\n' > scripts/setlocalversion
           chmod +x scripts/setlocalversion
           cat scripts/setlocalversion
 
