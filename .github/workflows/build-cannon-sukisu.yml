@@ -47,11 +47,12 @@ jobs:
         working-directory: kernel
         run: |
           cfg=arch/arm64/configs/cannon_user_defconfig
-          ./scripts/config --file $cfg --enable KSU --enable KSU_TAMPER_SYSCALL_TABLE --disable KSU_SUSFS
+          ./scripts/config --file $cfg --enable KSU --enable KSU_TAMPER_SYSCALL_TABLE --disable KSU_SUSFS --disable KPM
           grep -q '^CONFIG_KSU=y' $cfg || echo 'CONFIG_KSU=y' >> $cfg
           grep -q '^CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' $cfg || echo 'CONFIG_KSU_TAMPER_SYSCALL_TABLE=y' >> $cfg
           grep -q 'KSU_SUSFS is not set' $cfg || echo '# CONFIG_KSU_SUSFS is not set' >> $cfg
-          tail -5 $cfg
+          grep -q 'KPM is not set' $cfg || echo '# CONFIG_KPM is not set' >> $cfg
+          tail -6 $cfg
 
       - name: Drop -EL flag for clang
         working-directory: kernel
@@ -71,7 +72,11 @@ jobs:
           # static_call.h only exists on 5.10+
           perl -0pi -e 's{#include <linux/static_call\.h>}{#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n#include <linux/static_call.h>\n#endif}' \
             drivers/kernelsu/kernel_includes.h
-          grep -n -A2 -B2 'static_call' drivers/kernelsu/kernel_includes.h
+          grep -n -A2 -B2 'static_call' drivers/kernelsu/kernel_includes.h || true
+          # kvcalloc() only exists since 4.18
+          sed -i 's/kvcalloc(\([^)]*\), \([^)]*\), GFP_KERNEL)/kvmalloc_array(\1, \2, GFP_KERNEL | __GFP_ZERO)/g' \
+            drivers/kernelsu/supercall/dispatch.c
+          grep -n 'kvcalloc\|kvmalloc_array' drivers/kernelsu/supercall/dispatch.c || true
 
       - name: Install build dependencies
         run: |
