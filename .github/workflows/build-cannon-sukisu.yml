@@ -75,6 +75,19 @@ jobs:
             grep -n -A8 'int __secure_computing' kernel/seccomp.c | head -12
           fi
 
+      - name: Force stock kernel release string
+        working-directory: kernel
+        run: |
+          # Vendor .ko modules are built against 4.14.186-g5ae48e2; our tree is
+          # at a different commit so Kbuild would append -g30fa96c92-dirty and
+          # the vendor modules would refuse to load.
+          cat > scripts/setlocalversion <<'EOF'
+#!/bin/sh
+echo "-g5ae48e2"
+EOF
+          chmod +x scripts/setlocalversion
+          cat scripts/setlocalversion
+
       - name: Drop -EL flag for clang
         working-directory: kernel
         run: |
